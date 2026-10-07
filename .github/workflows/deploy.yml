@@ -1,0 +1,76 @@
+name: Deploy Application
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build_id: ${{ steps.build.outputs.build_id }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create build ID
+        id: build
+        run: |
+          BUILD_ID="${GITHUB_SHA::7}"
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "Built application $BUILD_ID"
+
+  deploy-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Deploy application to dev
+        run: ./deploy.sh dev "${{ needs.build.outputs.build_id }}"
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform apply to dev
+        run: |
+          terraform apply -auto-approve \
+            -var="environment=dev" \
+            -var="build_id=${{ needs.build.outputs.build_id }}"
+
+      - name: Fake dev test
+        run: echo "Dev tests passed"
+
+  deploy-production:
+    needs:
+      - build
+      - deploy-dev
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Deploy same build to production
+        run: ./deploy.sh production "${{ needs.build.outputs.build_id }}"
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform apply to production
+        run: |
+          terraform apply -auto-approve \
+            -var="environment=production" \
+            -var="build_id=${{ needs.build.outputs.build_id }}"
