@@ -2,7 +2,13 @@ name: PR Approval Bot
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
 
 permissions:
   contents: read
@@ -26,6 +32,20 @@ jobs:
             echo "LOW_RISK=false" >> "$GITHUB_ENV"
           fi
 
+      - name: Check for human approval
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(label => label.name);
+
+            if (labels.includes('human-approved')) {
+              core.exportVariable('HUMAN_APPROVED', 'true');
+              console.log('Human approval found.');
+            } else {
+              core.exportVariable('HUMAN_APPROVED', 'false');
+              console.log('No human approval found.');
+            }
+
       - name: Comment low-risk decision
         if: env.LOW_RISK == 'true'
         uses: actions/github-script@v7
@@ -35,11 +55,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: 'Bot decision: low-risk change can continue.'
+              body: 'Bot decision: low-risk change can continue automatically.'
             })
 
-      - name: Comment high-risk decision
-        if: env.LOW_RISK != 'true'
+      - name: Comment high-risk approved decision
+        if: env.LOW_RISK != 'true' && env.HUMAN_APPROVED == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -47,11 +67,23 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: 'Bot decision: high-risk change requires human review.'
+              body: 'Human approval detected: high-risk change may continue.'
             })
 
-      - name: Block high-risk change
-        if: env.LOW_RISK != 'true'
+      - name: Comment high-risk blocked decision
+        if: env.LOW_RISK != 'true' && env.HUMAN_APPROVED != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: 'Bot decision: high-risk change is blocked until human approval.'
+            })
+
+      - name: Block unapproved high-risk change
+        if: env.LOW_RISK != 'true' && env.HUMAN_APPROVED != 'true'
         run: |
-          echo "High-risk change requires human review."
+          echo "High-risk change requires human approval."
           exit 1
